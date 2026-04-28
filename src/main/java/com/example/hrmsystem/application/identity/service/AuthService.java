@@ -4,13 +4,16 @@ import com.example.hrmsystem.application.identity.command.LoginCommand;
 import com.example.hrmsystem.application.identity.command.TokenCommand;
 import com.example.hrmsystem.application.identity.dto.AuthTokensDto;
 import com.example.hrmsystem.application.identity.dto.DecodeToken;
+import com.example.hrmsystem.application.identity.exception.AuthErrorCode;
 import com.example.hrmsystem.application.identity.port.in.AuthUseCase;
 import com.example.hrmsystem.application.identity.port.out.CachePort;
 import com.example.hrmsystem.application.identity.port.out.PasswordHasherPort;
 import com.example.hrmsystem.application.identity.port.out.TokenPort;
 import com.example.hrmsystem.application.identity.port.out.UserPersistencePort;
 import com.example.hrmsystem.application.identity.security.UserClaimsFactory;
+import com.example.hrmsystem.domain.identity.exception.InactiveUserException;
 import com.example.hrmsystem.domain.identity.model.UserModel;
+import com.example.hrmsystem.interfaces.exception.AppException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -52,7 +55,7 @@ public class AuthService implements AuthUseCase {
     public AuthTokensDto login(LoginCommand loginCommand) {
 
         if(cachePort.isCacheExist(LOCK_LOGIN_PREFIX+loginCommand.getUsername())) {
-            throw new AppException(ErrorCode.LOGIN_BLOCKED);
+            throw new AppException(AuthErrorCode.LOGIN_BLOCKED, AuthErrorCode.LOGIN_BLOCKED.getDefaultMessage());
         }
 
         UserModel user = userPersistencePort.findByUsername(loginCommand.getUsername())
@@ -60,10 +63,14 @@ public class AuthService implements AuthUseCase {
                 .filter(u -> passwordHasherPort.matches(loginCommand.getPassword(), u.getPasswordHash().getPasswordHash()))
                 .orElseThrow(() -> {
                     this.handleLoginFail(loginCommand.getUsername());
-                    return new AppException(ErrorCode.AUTHENTICATION_FAIL);
+                    return new AppException(AuthErrorCode.AUTHENTICATION_FAIL, AuthErrorCode.AUTHENTICATION_FAIL.getDefaultMessage());
                 });
 
-        user = user.login(Instant.now());
+        try {
+            user = user.login(Instant.now());
+        } catch (InactiveUserException ex) {
+            throw new AppException(AuthErrorCode.USER_INACTIVE, AuthErrorCode.USER_INACTIVE.getDefaultMessage());
+        }
 
         cachePort.deleteCache(LOGIN_FAIL_PREFIX + loginCommand.getUsername());
 
